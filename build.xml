@@ -1,0 +1,121 @@
+<project name="Sample usage of Salesforce Ant tasks" default="test" basedir="." xmlns:sf="antlib:com.salesforce">
+
+    <property file="build.properties"/>
+    <property environment="env"/>
+
+    <!-- Setting default value for username, password and session id properties to empty string 
+         so unset values are treated as empty. Without this, ant expressions such as ${sf.username}
+         will be treated literally.
+    -->
+    <condition property="sf.username" value=""> <not> <isset property="sf.username"/> </not> </condition>
+    <condition property="sf.password" value=""> <not> <isset property="sf.password"/> </not> </condition>
+    <condition property="sf.sessionId" value=""> <not> <isset property="sf.sessionId"/> </not> </condition>
+	<!--<condition property="sf.zipFile" value=""> <not> <isset property="sf.zipFile"/> </not> </condition>-->
+	
+    <taskdef resource="com/salesforce/antlib.xml" uri="antlib:com.salesforce">
+        <classpath>
+            <pathelement location="../ant-salesforce.jar" />        	
+        </classpath>
+    </taskdef>
+	
+
+    <!-- Shows retrieving code; only succeeds if done after deployCode -->
+    <target name="retrieveCode">
+      <!-- Retrieve the contents listed in the file codepkg/package.xml into the codepkg directory -->
+      <sf:retrieve username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="${sf.maxPoll}" retrieveTarget="deployThis" unpackaged="deployThis/package.xml" pollWaitMillis="400"/>
+    </target>
+	
+	<!-- Shows check only; never actually saves to the server -->
+    <target name="deployCodeCheckOnly">
+      <sf:deploy username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="10" deployRoot="Sandbox" checkOnly="true" testLevel="RunSpecifiedTests" rollbackOnError="true" pollWaitMillis="100000">
+		<runTest>CLR_CNI_Incentive_CapCalculation_Test</runTest>
+		<runTest>BatchTransStatusUpdateTest</runTest>
+		<runTest>dsmeAssignedInvItemOnDeviceTest</runTest>
+		<runTest>UpdateTransactionStatusTest</runTest>			
+      </sf:deploy>
+    </target>	
+	<target name="validateComponentOnly">
+      <!-- Upload the contents of the "codepkg" directory, running the tests for just 1 class -->
+      <sf:deploy username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="10" deployRoot="UAT"  checkOnly="true" rollbackOnError="true" > 
+      </sf:deploy>
+    </target>
+	
+	<target name="deployComponentOnly">
+      <!-- Upload the contents of the "codepkg" directory, running the tests for just 1 class -->
+      <sf:deploy username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="10" deployRoot="Sandbox"   rollbackOnError="true" > 
+      </sf:deploy>
+    </target>
+	
+	<target name="deployCode">
+      <sf:deploy username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="10" deployRoot="Sandbox"  rollbackOnError="true" >	  
+	  </sf:deploy>
+    </target>
+	<!-- Shows quick deployment of recent validation. Set the property sf.recentValidationId to your recent check only deployment Id -->
+	<target name="quickDeploy">
+	  <sf:deployRecentValidation  username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="${sf.maxPoll}" recentValidationId="0Af1V000003QSVJ"/>
+	</target>
+	
+	<!-- Shows cancel deployment of deploy request either pending or in progress. Set property sf.requestId to Id of pending or in progress deploy request -->
+	<target name="cancelDeploy">
+	  <sf:cancelDeploy  username="${sf.username}" password="${sf.password}" serverurl="${sf.serverurl}" maxPoll="${sf.maxPoll}" requestId="${sf.requestId}"/>
+	</target>
+	
+	 <target name="undeployCode">
+      <sf:deploy username="${sf.username}" password="${sf.password}" sessionId="${sf.sessionId}" serverurl="${sf.serverurl}" maxPoll="${sf.maxPoll}" deployRoot="Sandbox" testLevel="RunSpecifiedTests" rollbackOnError="true" pollWaitMillis="400" >
+	   <runTest>changeWorkorderTest</runTest>
+      </sf:deploy>
+    </target>
+	
+	<target name="DeployRunSpecifedTest">
+    <sfDeployUnmanaged   username="${sf.username}" password="${sf.password}" serverurl="${sf.serverurl}" maxPoll="10" deployRoot="Sandbox" >
+	 <fileset dir="Sandbox/classes">
+            <include name="**/*Test*.cls"/>
+     </fileset>
+	  </sfDeployUnmanaged>
+</target>
+
+	<scriptdef name="sfDeployUnmanaged" language="javascript">
+    <attribute name="username"/>
+    <attribute name="password"/>
+    <attribute name="serverurl"/>
+    <attribute name="deployroot"/>
+    <attribute name="maxpoll"/>
+    <attribute name="trace"/>
+    <element name="fileset" type="fileset"/>
+
+    <![CDATA[
+        var filesets = elements.get("fileset");
+        var filesetsIterator = filesets.iterator();
+        var projectClasses = [];
+        while(filesetsIterator.hasNext()){
+            var fs = filesetsIterator.next();
+            var iter = fs.iterator();
+            while(iter.hasNext()){
+                var resource = iter.next();
+                var clazz = resource.getName().replace(".cls","");
+                self.log("CLASS: " + clazz);
+                projectClasses.push(clazz);
+            }
+        }
+		 var task = project.createTask("antlib:com.salesforce:deploy");;
+        task.setUsername(attributes.get("username"));
+        task.setPassword(attributes.get("password"));
+		task.setTestLevel('RunSpecifiedTests');
+        task.setServerURL(attributes.get("serverurl"));
+        task.setDeployRoot(attributes.get("deployroot"));
+        task.setMaxPoll(attributes.get("maxpoll"));
+		task.setCheckonly('true');
+        //Blows up when build timeout is reached if we don't set this (it uses this value when formatting the exception it throws)
+        task.setOwningTarget(self.owningTarget);
+
+        var classClazz = task.getClass().getClassLoader().loadClass("com.salesforce.ant.DeployTask$CodeNameElement");
+        for(i in projectClasses){
+            var clazz = classClazz.newInstance();
+            clazz.addText(projectClasses[i]);
+            task.addRunTest(clazz);
+        }
+
+        task.execute();
+     ]]>
+</scriptdef>
+</project>
